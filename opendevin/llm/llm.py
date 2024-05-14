@@ -2,6 +2,8 @@ from functools import partial
 
 import warnings
 
+from opendevin.llm.dashscope import dashscope_completion
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import litellm
@@ -146,7 +148,7 @@ class LLM:
                 self.max_output_tokens = 1024
 
         self._completion = partial(
-            litellm_completion,
+            dashscope_completion,
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
