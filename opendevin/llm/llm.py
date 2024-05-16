@@ -1,11 +1,8 @@
+import warnings
 from functools import partial
 
-import warnings
-
-from opendevin.llm.dashscope import dashscope_completion
-
 with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
+    warnings.simplefilter('ignore')
     import litellm
 from litellm import completion as litellm_completion
 from litellm import completion_cost as litellm_completion_cost
@@ -148,7 +145,7 @@ class LLM:
                 self.max_output_tokens = 1024
 
         self._completion = partial(
-            dashscope_completion,
+            litellm_completion,
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
