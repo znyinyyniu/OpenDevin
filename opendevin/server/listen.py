@@ -16,7 +16,7 @@ import agenthub  # noqa F401 (we import this to get the agents registered)
 from opendevin.controller.agent import Agent
 from opendevin.core.config import config
 from opendevin.core.logger import opendevin_logger as logger
-from opendevin.llm import bedrock
+from opendevin.llm import bedrock, dashscope
 from opendevin.runtime import files
 from opendevin.server.agent import agent_manager
 from opendevin.server.auth import get_sid_from_token, sign_token
@@ -123,7 +123,9 @@ async def get_litellm_models():
         litellm_model_list
     )
     bedrock_model_list = bedrock.list_foundation_models()
-    model_list = litellm_model_list_without_bedrock + bedrock_model_list
+    model_list = (
+        dashscope.model_list + litellm_model_list_without_bedrock + bedrock_model_list
+    )
 
     return list(set(model_list))
 

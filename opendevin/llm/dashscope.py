@@ -3,6 +3,10 @@ from typing import List, Optional
 
 import dashscope
 
+model_list = [
+    'qwen-max',
+]
+
 
 def dashscope_completion(
     model: str,

@@ -1,11 +1,10 @@
 import warnings
 from functools import partial
 
-from opendevin.llm.mock import mock_completion
-
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     import litellm
+from litellm import completion as litellm_completion
 from litellm import completion_cost as litellm_completion_cost
 from litellm.exceptions import (
     APIConnectionError,
@@ -146,7 +145,7 @@ class LLM:
                 self.max_output_tokens = 1024
 
         self._completion = partial(
-            mock_completion,
+            litellm_completion,
             model=self.model_name,
             api_key=self.api_key,
             base_url=self.base_url,
