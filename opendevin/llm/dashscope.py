@@ -3,9 +3,7 @@ from typing import List, Optional
 
 import dashscope
 
-model_list = [
-    'qwen-max',
-]
+model_list = ['qwen-max', 'qwen-turbo', 'qwen-plus', 'qwen-max-longcontext']
 
 
 def dashscope_completion(
