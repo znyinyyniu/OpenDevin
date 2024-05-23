@@ -1,35 +1,23 @@
-export type WorkspaceFile = {
-  name: string;
-  children?: WorkspaceFile[];
-};
+import { request } from "./api";
 
 export async function selectFile(file: string): Promise<string> {
-  const res = await fetch(`/api/select-file?file=${file}`);
-  const data = await res.json();
-  if (res.status !== 200) {
-    throw new Error(data.error);
-  }
+  const data = await request(`/api/select-file?file=${file}`);
   return data.code as string;
 }
 
-export async function uploadFile(file: File) {
+export async function uploadFiles(files: FileList) {
   const formData = new FormData();
-  formData.append("file", file);
+  for (let i = 0; i < files.length; i += 1) {
+    formData.append("files", files[i]);
+  }
 
-  const res = await fetch("/api/upload-file", {
+  await request("/api/upload-files", {
     method: "POST",
     body: formData,
   });
-
-  const data = await res.json();
-
-  if (res.status !== 200) {
-    throw new Error(data.error || "Failed to upload file.");
-  }
 }
 
-export async function getWorkspace(): Promise<WorkspaceFile> {
-  const res = await fetch("/api/refresh-files");
-  const data = await res.json();
-  return data as WorkspaceFile;
+export async function listFiles(path: string = "/"): Promise<string[]> {
+  const data = await request(`/api/list-files?path=${path}`);
+  return data as string[];
 }

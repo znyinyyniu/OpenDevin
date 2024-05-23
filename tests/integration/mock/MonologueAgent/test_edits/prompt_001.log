@@ -367,7 +367,7 @@ Here are the possible actions:
 
 
 
-You MUST take time to think in between read, write, run, browse, push, and recall actions--do this with the `message` action.
+You MUST take time to think in between read, write, run, kill, browse, push, and recall actions--do this with the `message` action.
 You should never act twice in a row without thinking. But if your last several
 actions are all `message` actions, you should consider taking a different action.
 
@@ -381,3 +381,5 @@ Notes:
 * whenever an action fails, always send a `message` about why it may have happened before acting again.
 
 What is your next single thought or action? Again, you must reply with JSON, and only with JSON. You must respond with exactly one 'action' object.
+
+

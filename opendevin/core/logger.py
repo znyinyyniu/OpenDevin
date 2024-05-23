@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -33,7 +34,7 @@ LOG_COLORS: Mapping[str, ColorType] = {
     'BACKGROUND LOG': 'blue',
     'ACTION': 'green',
     'OBSERVATION': 'yellow',
-    'INFO': 'cyan',
+    'DETAIL': 'cyan',
     'ERROR': 'red',
     'PLAN': 'light_magenta',
 }
@@ -48,9 +49,9 @@ class ColoredFormatter(logging.Formatter):
             time_str = colored(
                 self.formatTime(record, self.datefmt), LOG_COLORS[msg_type]
             )
-            name_str = colored(record.name, 'cyan')
-            level_str = colored(record.levelname, 'yellow')
-            if msg_type in ['ERROR', 'INFO']:
+            name_str = colored(record.name, LOG_COLORS[msg_type])
+            level_str = colored(record.levelname, LOG_COLORS[msg_type])
+            if msg_type in ['ERROR']:
                 return f'{time_str} - {name_str}:{level_str}: {record.filename}:{record.lineno}\n{msg_type_color}\n{msg}'
             return f'{time_str} - {msg_type_color}\n{msg}'
         elif msg_type == 'STEP':
@@ -69,6 +70,38 @@ file_formatter = logging.Formatter(
     datefmt='%H:%M:%S',
 )
 llm_formatter = logging.Formatter('%(message)s')
+
+
+class SensitiveDataFilter(logging.Filter):
+    def filter(self, record):
+        # start with attributes
+        sensitive_patterns = [
+            'api_key',
+            'aws_access_key_id',
+            'aws_secret_access_key',
+            'e2b_api_key',
+            'github_token',
+        ]
+
+        # add env var names
+        env_vars = [attr.upper() for attr in sensitive_patterns]
+        sensitive_patterns.extend(env_vars)
+
+        # and some special cases
+        sensitive_patterns.append('LLM_API_KEY')
+        sensitive_patterns.append('SANDBOX_ENV_GITHUB_TOKEN')
+
+        # this also formats the message with % args
+        msg = record.getMessage()
+        record.args = ()
+
+        for attr in sensitive_patterns:
+            pattern = rf"{attr}='?([\w-]+)'?"
+            msg = re.sub(pattern, f"{attr}='******'", msg)
+
+        # passed with msg
+        record.msg = msg
+        return True
 
 
 def get_console_handler():
@@ -121,6 +154,7 @@ opendevin_logger = logging.getLogger('opendevin')
 opendevin_logger.setLevel(logging.INFO)
 opendevin_logger.addHandler(get_file_handler())
 opendevin_logger.addHandler(get_console_handler())
+opendevin_logger.addFilter(SensitiveDataFilter(opendevin_logger.name))
 opendevin_logger.propagate = False
 opendevin_logger.debug('Logging initialized')
 opendevin_logger.debug(
@@ -150,9 +184,22 @@ class LlmFileHandler(logging.FileHandler):
         """
         self.filename = filename
         self.message_counter = 1
-        self.session = datetime.now().strftime('%y-%m-%d_%H-%M')
+        if config.debug:
+            self.session = datetime.now().strftime('%y-%m-%d_%H-%M')
+        else:
+            self.session = 'default'
         self.log_directory = os.path.join(os.getcwd(), 'logs', 'llm', self.session)
         os.makedirs(self.log_directory, exist_ok=True)
+        if not config.debug:
+            # Clear the log directory if not in debug mode
+            for file in os.listdir(self.log_directory):
+                file_path = os.path.join(self.log_directory, file)
+                try:
+                    os.unlink(file_path)
+                except Exception as e:
+                    opendevin_logger.error(
+                        'Failed to delete %s. Reason: %s', file_path, e
+                    )
         filename = f'{self.filename}_{self.message_counter:03}.log'
         self.baseFilename = os.path.join(self.log_directory, filename)
         super().__init__(self.baseFilename, mode, encoding, delay)
@@ -195,12 +242,10 @@ def get_llm_response_file_handler():
 
 llm_prompt_logger = logging.getLogger('prompt')
 llm_prompt_logger.propagate = False
-if config.debug:
-    llm_prompt_logger.setLevel(logging.DEBUG)
+llm_prompt_logger.setLevel(logging.DEBUG)
 llm_prompt_logger.addHandler(get_llm_prompt_file_handler())
 
 llm_response_logger = logging.getLogger('response')
 llm_response_logger.propagate = False
-if config.debug:
-    llm_response_logger.setLevel(logging.DEBUG)
+llm_response_logger.setLevel(logging.DEBUG)
 llm_response_logger.addHandler(get_llm_response_file_handler())
