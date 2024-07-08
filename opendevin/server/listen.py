@@ -38,7 +38,7 @@ from opendevin.events.observation import (
     NullObservation,
 )
 from opendevin.events.serialization import event_to_dict
-from opendevin.llm import bedrock
+from opendevin.llm import bedrock, dashscope
 from opendevin.server.auth import get_sid_from_token, sign_token
 from opendevin.server.session import session_manager
 
@@ -307,7 +307,9 @@ async def get_litellm_models():
         litellm_model_list
     )
     bedrock_model_list = bedrock.list_foundation_models()
-    model_list = litellm_model_list_without_bedrock + bedrock_model_list
+    model_list = (
+        dashscope.model_list + litellm_model_list_without_bedrock + bedrock_model_list
+    )
     ollama_base_url = config.llm.ollama_base_url
     if config.llm.model.startswith('ollama'):
         if not ollama_base_url:
