@@ -1,11 +1,19 @@
+import i18next from "i18next";
 import toast from "#/utils/toast";
 import { handleAssistantMessage } from "./actions";
 import { getToken, setToken, clearToken } from "./auth";
 import ActionType from "#/types/ActionType";
 import { getSettings } from "./settings";
+import { I18nKey } from "#/i18n/declaration";
+
+const translate = (key: I18nKey) => i18next.t(key);
 
 class Session {
   private static _socket: WebSocket | null = null;
+
+  private static _latest_event_id: number = -1;
+
+  public static _history: Record<string, unknown>[] = [];
 
   // callbacks contain a list of callable functions
   // event: function, like:
@@ -25,11 +33,10 @@ class Session {
   private static _disconnecting = false;
 
   public static restoreOrStartNewSession() {
-    const token = getToken();
     if (Session.isConnected()) {
       Session.disconnect();
     }
-    Session._connect(token);
+    Session._connect();
   }
 
   public static startNewSession() {
@@ -44,22 +51,31 @@ class Session {
     Session.send(eventString);
   };
 
-  private static _connect(token: string = ""): void {
+  private static _connect(): void {
     if (Session.isConnected()) return;
     Session._connecting = true;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const WS_URL = `${protocol}//${window.location.host}/ws?token=${token}`;
-    Session._socket = new WebSocket(WS_URL);
+    let wsURL = `${protocol}//${window.location.host}/ws`;
+    const token = getToken();
+    if (token) {
+      wsURL += `?token=${token}`;
+      if (Session._latest_event_id !== -1) {
+        wsURL += `&latest_event_id=${Session._latest_event_id}`;
+      }
+    }
+    Session._socket = new WebSocket(wsURL);
     Session._setupSocket();
   }
 
   private static _setupSocket(): void {
     if (!Session._socket) {
-      throw new Error("Socket is not initialized.");
+      throw new Error(
+        translate(I18nKey.SESSION$SOCKET_NOT_INITIALIZED_ERROR_MESSAGE),
+      );
     }
     Session._socket.onopen = (e) => {
-      toast.success("ws", "Connected to server.");
+      toast.success("ws", translate(I18nKey.SESSION$SERVER_CONNECTED_MESSAGE));
       Session._connecting = false;
       Session._initializeAgent();
       Session.callbacks.open?.forEach((callback) => {
@@ -71,23 +87,33 @@ class Session {
       let data = null;
       try {
         data = JSON.parse(e.data);
+        Session._history.push(data);
       } catch (err) {
         // TODO: report the error
-        console.error("Error parsing JSON data", err);
+        toast.error(
+          "ws",
+          translate(I18nKey.SESSION$SESSION_HANDLING_ERROR_MESSAGE),
+        );
         return;
       }
       if (data.error && data.error_code === 401) {
+        Session._latest_event_id = -1;
         clearToken();
       } else if (data.token) {
         setToken(data.token);
       } else {
+        if (data.id !== undefined) {
+          Session._latest_event_id = data.id;
+        }
         handleAssistantMessage(data);
       }
     };
 
     Session._socket.onerror = () => {
-      const msg = "Connection failed. Retry...";
-      toast.error("ws", msg);
+      toast.error(
+        "ws",
+        translate(I18nKey.SESSION$SESSION_CONNECTION_ERROR_MESSAGE),
+      );
     };
 
     Session._socket.onclose = () => {
@@ -120,14 +146,19 @@ class Session {
       return;
     }
     if (!Session.isConnected()) {
-      throw new Error("Not connected to server.");
+      throw new Error(
+        translate(I18nKey.SESSION$SESSION_CONNECTION_ERROR_MESSAGE),
+      );
     }
 
     if (Session.isConnected()) {
       Session._socket?.send(message);
+      Session._history.push(JSON.parse(message));
     } else {
-      const msg = "Connection failed. Retry...";
-      toast.error("ws", msg);
+      toast.error(
+        "ws",
+        translate(I18nKey.SESSION$SESSION_CONNECTION_ERROR_MESSAGE),
+      );
     }
   }
 

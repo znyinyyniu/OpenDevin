@@ -1,5 +1,5 @@
 from opendevin.core.exceptions import (
-    AgentMalformedActionError,
+    LLMMalformedActionError,
     TaskInvalidStateError,
 )
 from opendevin.core.logger import opendevin_logger as logger
@@ -29,7 +29,7 @@ class Task:
         parent: 'Task',
         goal: str,
         state: str = OPEN_STATE,
-        subtasks: list = [],
+        subtasks=None,  # noqa: B006
     ):
         """Initializes a new instance of the Task class.
 
@@ -39,12 +39,15 @@ class Task:
             state: The initial state of the task.
             subtasks: A list of subtasks associated with this task.
         """
+        if subtasks is None:
+            subtasks = []
         if parent.id:
             self.id = parent.id + '.' + str(len(parent.subtasks))
         else:
             self.id = str(len(parent.subtasks))
         self.parent = parent
         self.goal = goal
+        logger.debug(f'Creating task {self.id} with parent={parent.id}, goal={goal}')
         self.subtasks = []
         for subtask in subtasks or []:
             if isinstance(subtask, Task):
@@ -53,6 +56,7 @@ class Task:
                 goal = subtask.get('goal')
                 state = subtask.get('state')
                 subtasks = subtask.get('subtasks')
+                logger.debug(f'Reading: {goal}, {state}, {subtasks}')
                 self.subtasks.append(Task(self, goal, state, subtasks))
 
         self.state = OPEN_STATE
@@ -178,19 +182,19 @@ class RootTask(Task):
         if id == '':
             return self
         if len(self.subtasks) == 0:
-            raise AgentMalformedActionError('Task does not exist:' + id)
+            raise LLMMalformedActionError('Task does not exist:' + id)
         try:
             parts = [int(p) for p in id.split('.')]
         except ValueError:
-            raise AgentMalformedActionError('Invalid task id:' + id)
+            raise LLMMalformedActionError('Invalid task id:' + id)
         task: Task = self
         for part in parts:
             if part >= len(task.subtasks):
-                raise AgentMalformedActionError('Task does not exist:' + id)
+                raise LLMMalformedActionError('Task does not exist:' + id)
             task = task.subtasks[part]
         return task
 
-    def add_subtask(self, parent_id: str, goal: str, subtasks: list = []):
+    def add_subtask(self, parent_id: str, goal: str, subtasks: list | None = None):
         """Adds a subtask to a parent task.
 
         Args:
@@ -198,6 +202,7 @@ class RootTask(Task):
             goal: The goal of the subtask.
             subtasks: A list of subtasks associated with the new subtask.
         """
+        subtasks = subtasks or []
         parent = self.get_task_by_id(parent_id)
         child = Task(parent=parent, goal=goal, subtasks=subtasks)
         parent.subtasks.append(child)
@@ -210,6 +215,7 @@ class RootTask(Task):
             state: The new state of the subtask.
         """
         task = self.get_task_by_id(id)
+        logger.debug('Setting task {task.id} from state {task.state} to {state}')
         task.set_state(state)
         unfinished_tasks = [
             t

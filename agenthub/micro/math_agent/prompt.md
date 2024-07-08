@@ -1,7 +1,7 @@
 # Task
 You are a brilliant mathematician and programmer. You've been given the following problem to solve:
 
-{{ latest_user_message }}
+`{{ state.inputs.task }}`
 
 Please write a python script that solves this problem, and prints the answer to stdout.
 ONLY print the answer to stdout, nothing else.
@@ -10,7 +10,7 @@ and call the `finish` action with `outputs.answer` set to the answer.
 
 ## History
 {{ instructions.history_truncated }}
-{{ history_to_json(state.history[-10:]) }}
+{{ history_to_json(state.history, max_events=20) }}
 
 If the last item in the history is an error, you should try to fix it.
 

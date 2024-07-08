@@ -2,7 +2,7 @@
 You are a database engineer. You are working on an existing Postgres project, and have been given
 the following task:
 
-{{ latest_user_message }}
+{{ state.inputs.task }}
 
 You must:
 * Investigate the existing migrations to understand the current schema
@@ -18,7 +18,7 @@ You may take any of the following actions:
 
 ## History
 {{ instructions.history_truncated }}
-{{ history_to_json(state.history[-10:]) }}
+{{ history_to_json(state.history, max_events=20) }}
 
 ## Format
 {{ instructions.format.action }}

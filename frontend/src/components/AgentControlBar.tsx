@@ -15,6 +15,7 @@ const IgnoreTaskStateMap: { [k: string]: AgentState[] } = {
     AgentState.PAUSED,
     AgentState.STOPPED,
     AgentState.FINISHED,
+    AgentState.REJECTED,
     AgentState.AWAITING_USER_INPUT,
   ],
   [AgentState.RUNNING]: [
@@ -22,6 +23,7 @@ const IgnoreTaskStateMap: { [k: string]: AgentState[] } = {
     AgentState.RUNNING,
     AgentState.STOPPED,
     AgentState.FINISHED,
+    AgentState.REJECTED,
     AgentState.AWAITING_USER_INPUT,
   ],
   [AgentState.STOPPED]: [AgentState.INIT, AgentState.STOPPED],
@@ -41,25 +43,29 @@ function ActionButton({
   action,
   handleAction,
   children,
-  large,
+  large = false,
 }: React.PropsWithChildren<ButtonProps>): React.ReactNode {
   return (
     <Tooltip content={content} closeDelay={100}>
       <button
         onClick={() => handleAction(action)}
         disabled={isDisabled}
-        className={`${large ? "rounded-full bg-neutral-800 p-3" : ""} hover:opacity-80 transition-all`}
+        className={`
+          relative overflow-visible cursor-default hover:cursor-pointer group
+          disabled:cursor-not-allowed disabled:opacity-60
+          ${large ? "rounded-full bg-neutral-800 p-3" : ""}
+          transition-all duration-300 ease-in-out
+        `}
         type="button"
       >
-        {children}
+        <span className="relative z-10 group-hover:filter group-hover:drop-shadow-[0_0_5px_rgba(255,64,0,0.4)]">
+          {children}
+        </span>
+        <span className="absolute -inset-[5px] border-2 border-red-400/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-in-out" />
       </button>
     </Tooltip>
   );
 }
-
-ActionButton.defaultProps = {
-  large: false,
-};
 
 function AgentControlBar() {
   const { curAgentState } = useSelector((state: RootState) => state.agent);

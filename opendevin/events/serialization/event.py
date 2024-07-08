@@ -1,20 +1,13 @@
 from dataclasses import asdict
 from datetime import datetime
-from enum import Enum
-from typing import TYPE_CHECKING
+
+from opendevin.core.config import config
+from opendevin.events import Event, EventSource
+from opendevin.events.observation.observation import Observation
 
 from .action import action_from_dict
 from .observation import observation_from_dict
 from .utils import remove_fields
-
-if TYPE_CHECKING:
-    from opendevin.events.event import Event
-
-
-class EventSource(str, Enum):
-    AGENT = 'agent'
-    USER = 'user'
-
 
 # TODO: move `content` into `extras`
 TOP_KEYS = ['id', 'timestamp', 'source', 'message', 'cause', 'action', 'observation']
@@ -29,6 +22,7 @@ DELETE_FROM_MEMORY_EXTRAS = {
     'last_browser_action',
     'last_browser_action_error',
     'focused_element_bid',
+    'extra_element_properties',
 }
 
 
@@ -84,4 +78,25 @@ def event_to_memory(event: 'Event') -> dict:
     d.pop('message', None)
     if 'extras' in d:
         remove_fields(d['extras'], DELETE_FROM_MEMORY_EXTRAS)
+    if isinstance(event, Observation) and 'content' in d:
+        d['content'] = truncate_content(d['content'])
     return d
+
+
+def truncate_content(content: str, max_chars: int = -1) -> str:
+    """
+    Truncate the middle of the observation content if it is too long.
+    """
+    if max_chars == -1:
+        max_chars = config.llm.max_message_chars
+
+    if len(content) <= max_chars:
+        return content
+
+    # truncate the middle and include a message to the LLM about it
+    half = max_chars // 2
+    return (
+        content[:half]
+        + '\n[... Observation truncated due to length ...]\n'
+        + content[-half:]
+    )

@@ -1,22 +1,22 @@
 import json
+from datetime import datetime
 
 from json_repair import repair_json
 
-from opendevin.core.exceptions import LLMOutputError
+from opendevin.core.exceptions import LLMResponseError
+from opendevin.events.event import Event
+from opendevin.events.serialization import event_to_dict
 
 
-def my_encoder(obj):
+def my_default_encoder(obj):
     """
-    Encodes objects as dictionaries
-
-    Parameters:
-    - obj (Object): An object that will be converted
-
-    Returns:
-    - dict: If the object can be converted it is returned in dict format
+    Custom JSON encoder that handles datetime and event objects
     """
-    if hasattr(obj, 'to_dict'):
-        return obj.to_dict()
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Event):
+        return event_to_dict(obj)
+    return json.JSONEncoder().default(obj)
 
 
 def dumps(obj, **kwargs):
@@ -24,13 +24,17 @@ def dumps(obj, **kwargs):
     Serialize an object to str format
     """
 
-    return json.dumps(obj, default=my_encoder, **kwargs)
+    return json.dumps(obj, default=my_default_encoder, **kwargs)
 
 
 def loads(json_str, **kwargs):
     """
     Create a JSON object from str
     """
+    try:
+        return json.loads(json_str, **kwargs)
+    except json.JSONDecodeError:
+        pass
     depth = 0
     start = -1
     for i, char in enumerate(json_str):
@@ -46,7 +50,7 @@ def loads(json_str, **kwargs):
                     json_str = repair_json(response)
                     return json.loads(json_str, **kwargs)
                 except (json.JSONDecodeError, ValueError, TypeError) as e:
-                    raise LLMOutputError(
+                    raise LLMResponseError(
                         'Invalid JSON in response. Please make sure the response is a valid JSON object.'
                     ) from e
-    raise LLMOutputError('No valid JSON object found in response.')
+    raise LLMResponseError('No valid JSON object found in response.')

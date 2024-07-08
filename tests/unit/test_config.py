@@ -6,6 +6,7 @@ from opendevin.core.config import (
     AgentConfig,
     AppConfig,
     LLMConfig,
+    UndefinedString,
     finalize_config,
     load_from_env,
     load_from_toml,
@@ -46,10 +47,12 @@ def test_compat_env_to_config(monkeypatch, setup_env):
     # Use `monkeypatch` to set environment variables for this specific test
     monkeypatch.setenv('WORKSPACE_BASE', '/repos/opendevin/workspace')
     monkeypatch.setenv('LLM_API_KEY', 'sk-proj-rgMV0...')
-    monkeypatch.setenv('LLM_MODEL', 'gpt-3.5-turbo')
+    monkeypatch.setenv('LLM_MODEL', 'gpt-4o')
     monkeypatch.setenv('AGENT_MEMORY_MAX_THREADS', '4')
     monkeypatch.setenv('AGENT_MEMORY_ENABLED', 'True')
     monkeypatch.setenv('AGENT', 'CodeActAgent')
+    monkeypatch.setenv('SANDBOX_TYPE', 'local')
+    monkeypatch.setenv('SANDBOX_TIMEOUT', '10')
 
     config = AppConfig()
     load_from_env(config, os.environ)
@@ -57,10 +60,14 @@ def test_compat_env_to_config(monkeypatch, setup_env):
     assert config.workspace_base == '/repos/opendevin/workspace'
     assert isinstance(config.llm, LLMConfig)
     assert config.llm.api_key == 'sk-proj-rgMV0...'
-    assert config.llm.model == 'gpt-3.5-turbo'
+    assert config.llm.model == 'gpt-4o'
     assert isinstance(config.agent, AgentConfig)
     assert isinstance(config.agent.memory_max_threads, int)
     assert config.agent.memory_max_threads == 4
+    assert config.agent.memory_enabled is True
+    assert config.agent.name == 'CodeActAgent'
+    assert config.sandbox.box_type == 'local'
+    assert config.sandbox.timeout == 10
 
 
 def test_load_from_old_style_env(monkeypatch, default_config):
@@ -69,6 +76,7 @@ def test_load_from_old_style_env(monkeypatch, default_config):
     monkeypatch.setenv('AGENT_MEMORY_ENABLED', 'True')
     monkeypatch.setenv('AGENT_NAME', 'PlannerAgent')
     monkeypatch.setenv('WORKSPACE_BASE', '/opt/files/workspace')
+    monkeypatch.setenv('SANDBOX_CONTAINER_IMAGE', 'custom_image')
 
     load_from_env(default_config, os.environ)
 
@@ -76,12 +84,20 @@ def test_load_from_old_style_env(monkeypatch, default_config):
     assert default_config.agent.memory_enabled is True
     assert default_config.agent.name == 'PlannerAgent'
     assert default_config.workspace_base == '/opt/files/workspace'
+    assert (
+        default_config.workspace_mount_path is UndefinedString.UNDEFINED
+    )  # before finalize_config
+    assert (
+        default_config.workspace_mount_path_in_sandbox is not UndefinedString.UNDEFINED
+    )
+    assert default_config.sandbox.container_image == 'custom_image'
 
 
 def test_load_from_new_style_toml(default_config, temp_toml_file):
     # Test loading configuration from a new-style TOML file
     with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
-        toml_file.write("""
+        toml_file.write(
+            """
 [llm]
 model = "test-model"
 api_key = "toml-api-key"
@@ -90,9 +106,14 @@ api_key = "toml-api-key"
 name = "TestAgent"
 memory_enabled = true
 
+[sandbox]
+timeout = 1
+
 [core]
 workspace_base = "/opt/files2/workspace"
-""")
+sandbox_type = "local"
+"""
+        )
 
     load_from_toml(default_config, temp_toml_file)
 
@@ -101,10 +122,76 @@ workspace_base = "/opt/files2/workspace"
     assert default_config.agent.name == 'TestAgent'
     assert default_config.agent.memory_enabled is True
     assert default_config.workspace_base == '/opt/files2/workspace'
+    assert default_config.sandbox.box_type == 'local'
+    assert default_config.sandbox.timeout == 1
+
+    # default config doesn't have a field sandbox_type
+    assert not hasattr(default_config, 'sandbox_type')
+
+    # before finalize_config, workspace_mount_path is UndefinedString.UNDEFINED if it was not set
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
+    assert (
+        default_config.workspace_mount_path_in_sandbox is not UndefinedString.UNDEFINED
+    )
+    assert default_config.workspace_mount_path_in_sandbox == '/workspace'
+
+    finalize_config(default_config)
+
+    # after finalize_config, workspace_mount_path is set to the absolute path of workspace_base
+    # if it was undefined
+    assert default_config.workspace_mount_path == '/opt/files2/workspace'
 
 
-def test_env_overrides_toml(monkeypatch, default_config, temp_toml_file):
-    # Test that environment variables override TOML values using monkeypatch
+def test_compat_load_sandbox_from_toml(default_config, temp_toml_file):
+    # test loading configuration from a new-style TOML file
+    # uses a toml file with sandbox_vars instead of a sandbox section
+    with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
+        toml_file.write(
+            """
+[llm]
+model = "test-model"
+
+[agent]
+name = "TestAgent"
+memory_enabled = true
+
+[core]
+workspace_base = "/opt/files2/workspace"
+sandbox_type = "local"
+sandbox_timeout = 500
+sandbox_container_image = "node:14"
+sandbox_user_id = 1001
+"""
+        )
+
+    load_from_toml(default_config, temp_toml_file)
+
+    assert default_config.llm.model == 'test-model'
+    assert default_config.agent.name == 'TestAgent'
+    assert default_config.agent.memory_enabled is True
+    assert default_config.workspace_base == '/opt/files2/workspace'
+    assert default_config.sandbox.box_type == 'local'
+    assert default_config.sandbox.timeout == 500
+    assert default_config.sandbox.container_image == 'node:14'
+    assert default_config.sandbox.user_id == 1001
+    assert default_config.workspace_mount_path_in_sandbox == '/workspace'
+
+    finalize_config(default_config)
+
+    # app config doesn't have fields sandbox_*
+    assert not hasattr(default_config, 'sandbox_type')
+    assert not hasattr(default_config, 'sandbox_timeout')
+    assert not hasattr(default_config, 'sandbox_container_image')
+    assert not hasattr(default_config, 'sandbox_user_id')
+
+    # after finalize_config, workspace_mount_path is set to the absolute path of workspace_base
+    # if it was undefined
+    assert default_config.workspace_mount_path == '/opt/files2/workspace'
+
+
+def test_env_overrides_compat_toml(monkeypatch, default_config, temp_toml_file):
+    # test that environment variables override TOML values using monkeypatch
+    # uses a toml file with sandbox_vars instead of a sandbox section
     with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
         toml_file.write("""
 [llm]
@@ -115,26 +202,135 @@ api_key = "toml-api-key"
 workspace_base = "/opt/files3/workspace"
 sandbox_type = "local"
 disable_color = true
+sandbox_timeout = 500
+sandbox_user_id = 1001
 """)
 
     monkeypatch.setenv('LLM_API_KEY', 'env-api-key')
-    monkeypatch.setenv('WORKSPACE_BASE', '/opt/files4/workspace')
-    monkeypatch.setenv('SANDBOX_TYPE', 'ssh')
+    monkeypatch.setenv('WORKSPACE_BASE', 'UNDEFINED')
+    monkeypatch.setenv('SANDBOX_TYPE', 'e2b')
+    monkeypatch.setenv('SANDBOX_TIMEOUT', '1000')
+    monkeypatch.setenv('SANDBOX_USER_ID', '1002')
 
     load_from_toml(default_config, temp_toml_file)
+
+    # before finalize_config, workspace_mount_path is UndefinedString.UNDEFINED if it was not set
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
+
     load_from_env(default_config, os.environ)
 
     assert os.environ.get('LLM_MODEL') is None
     assert default_config.llm.model == 'test-model'
     assert default_config.llm.api_key == 'env-api-key'
-    assert default_config.workspace_base == '/opt/files4/workspace'
-    assert default_config.sandbox_type == 'ssh'
+
+    # after we set workspace_base to 'UNDEFINED' in the environment,
+    # workspace_base should be set to that
+    # workspace_mount path is still UndefinedString.UNDEFINED
+    assert default_config.workspace_base is not UndefinedString.UNDEFINED
+    assert default_config.workspace_base == 'UNDEFINED'
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
+    assert default_config.workspace_mount_path == 'UNDEFINED'
+
+    assert default_config.sandbox.box_type == 'e2b'
     assert default_config.disable_color is True
+    assert default_config.sandbox.timeout == 1000
+    assert default_config.sandbox.user_id == 1002
+
+    finalize_config(default_config)
+    # after finalize_config, workspace_mount_path is set to absolute path of workspace_base if it was undefined
+    assert default_config.workspace_mount_path == os.getcwd() + '/UNDEFINED'
+
+
+def test_env_overrides_sandbox_toml(monkeypatch, default_config, temp_toml_file):
+    # test that environment variables override TOML values using monkeypatch
+    # uses a toml file with a sandbox section
+    with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
+        toml_file.write("""
+[llm]
+model = "test-model"
+api_key = "toml-api-key"
+
+[core]
+workspace_base = "/opt/files3/workspace"
+
+[sandbox]
+box_type = "e2b"
+timeout = 500
+user_id = 1001
+""")
+
+    monkeypatch.setenv('LLM_API_KEY', 'env-api-key')
+    monkeypatch.setenv('WORKSPACE_BASE', 'UNDEFINED')
+    monkeypatch.setenv('SANDBOX_TYPE', 'local')
+    monkeypatch.setenv('SANDBOX_TIMEOUT', '1000')
+    monkeypatch.setenv('SANDBOX_USER_ID', '1002')
+
+    load_from_toml(default_config, temp_toml_file)
+
+    # before finalize_config, workspace_mount_path is UndefinedString.UNDEFINED if it was not set
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
+
+    # before load_from_env, values are set to the values from the toml file
+    assert default_config.llm.api_key == 'toml-api-key'
+    assert default_config.sandbox.box_type == 'e2b'
+    assert default_config.sandbox.timeout == 500
+    assert default_config.sandbox.user_id == 1001
+
+    load_from_env(default_config, os.environ)
+
+    # values from env override values from toml
+    assert os.environ.get('LLM_MODEL') is None
+    assert default_config.llm.model == 'test-model'
+    assert default_config.llm.api_key == 'env-api-key'
+
+    assert default_config.sandbox.box_type == 'local'
+    assert default_config.sandbox.timeout == 1000
+    assert default_config.sandbox.user_id == 1002
+
+    finalize_config(default_config)
+    # after finalize_config, workspace_mount_path is set to absolute path of workspace_base if it was undefined
+    assert default_config.workspace_mount_path == os.getcwd() + '/UNDEFINED'
+
+
+def test_sandbox_config_from_toml(default_config, temp_toml_file):
+    # Test loading configuration from a new-style TOML file
+    with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
+        toml_file.write(
+            """
+[core]
+workspace_base = "/opt/files/workspace"
+
+[llm]
+model = "test-model"
+
+[sandbox]
+box_type = "local"
+timeout = 1
+container_image = "custom_image"
+user_id = 1001
+"""
+        )
+
+    load_from_toml(default_config, temp_toml_file)
+    load_from_env(default_config, os.environ)
+    finalize_config(default_config)
+
+    assert default_config.llm.model == 'test-model'
+    assert default_config.sandbox.box_type == 'local'
+    assert default_config.sandbox.timeout == 1
+    assert default_config.sandbox.container_image == 'custom_image'
+    assert default_config.sandbox.user_id == 1001
 
 
 def test_defaults_dict_after_updates(default_config):
     # Test that `defaults_dict` retains initial values after updates.
     initial_defaults = default_config.defaults_dict
+    assert (
+        initial_defaults['workspace_mount_path']['default'] is UndefinedString.UNDEFINED
+    )
+    assert initial_defaults['llm']['api_key']['default'] is None
+    assert initial_defaults['agent']['name']['default'] == 'CodeActAgent'
+
     updated_config = AppConfig()
     updated_config.llm.api_key = 'updated-api-key'
     updated_config.agent.name = 'MonologueAgent'
@@ -142,40 +338,56 @@ def test_defaults_dict_after_updates(default_config):
     defaults_after_updates = updated_config.defaults_dict
     assert defaults_after_updates['llm']['api_key']['default'] is None
     assert defaults_after_updates['agent']['name']['default'] == 'CodeActAgent'
+    assert (
+        defaults_after_updates['workspace_mount_path']['default']
+        is UndefinedString.UNDEFINED
+    )
+    assert defaults_after_updates['sandbox']['box_type']['default'] == 'ssh'
+    assert defaults_after_updates['sandbox']['timeout']['default'] == 120
+    assert (
+        defaults_after_updates['sandbox']['container_image']['default']
+        == 'ghcr.io/opendevin/sandbox:main'
+    )
     assert defaults_after_updates == initial_defaults
-
-    AppConfig.reset()
 
 
 def test_invalid_toml_format(monkeypatch, temp_toml_file, default_config):
     # Invalid TOML format doesn't break the configuration
     monkeypatch.setenv('LLM_MODEL', 'gpt-5-turbo-1106')
+    monkeypatch.setenv('WORKSPACE_MOUNT_PATH', '/home/user/project')
     monkeypatch.delenv('LLM_API_KEY', raising=False)
     with open(temp_toml_file, 'w', encoding='utf-8') as toml_file:
         toml_file.write('INVALID TOML CONTENT')
 
     load_from_toml(default_config)
     load_from_env(default_config, os.environ)
+    default_config.ssh_password = None  # prevent leak
+    default_config.jwt_secret = None  # prevent leak
     assert default_config.llm.model == 'gpt-5-turbo-1106'
     assert default_config.llm.custom_llm_provider is None
-    assert default_config.github_token is None
-    assert default_config.llm.api_key is None
+    if default_config.llm.api_key is not None:  # prevent leak
+        pytest.fail('LLM API key should be empty.')
+    assert default_config.workspace_mount_path == '/home/user/project'
 
 
 def test_finalize_config(default_config):
     # Test finalize config
-    default_config.sandbox_type = 'local'
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
+    default_config.sandbox.box_type = 'local'
     finalize_config(default_config)
 
     assert (
         default_config.workspace_mount_path_in_sandbox
         == default_config.workspace_mount_path
     )
+    assert default_config.workspace_mount_path == os.path.abspath(
+        default_config.workspace_base
+    )
 
 
 # tests for workspace, mount path, path in sandbox, cache dir
 def test_workspace_mount_path_default(default_config):
-    assert default_config.workspace_mount_path is None
+    assert default_config.workspace_mount_path is UndefinedString.UNDEFINED
     finalize_config(default_config)
     assert default_config.workspace_mount_path == os.path.abspath(
         default_config.workspace_base
@@ -184,7 +396,7 @@ def test_workspace_mount_path_default(default_config):
 
 def test_workspace_mount_path_in_sandbox_local(default_config):
     assert default_config.workspace_mount_path_in_sandbox == '/workspace'
-    default_config.sandbox_type = 'local'
+    default_config.sandbox.box_type = 'local'
     finalize_config(default_config)
     assert (
         default_config.workspace_mount_path_in_sandbox
@@ -232,6 +444,8 @@ def test_api_keys_repr_str():
         'api_key',
         'aws_access_key_id',
         'aws_secret_access_key',
+        'input_cost_per_token',
+        'output_cost_per_token',
     ]
     for attr_name in dir(LLMConfig):
         if (
@@ -264,16 +478,19 @@ def test_api_keys_repr_str():
         llm=llm_config,
         agent=agent_config,
         e2b_api_key='my_e2b_api_key',
-        github_token='my_github_token',
+        jwt_secret='my_jwt_secret',
+        ssh_password='my_ssh_password',
     )
     assert "e2b_api_key='******'" in repr(app_config)
-    assert "github_token='******'" in repr(app_config)
     assert "e2b_api_key='******'" in str(app_config)
-    assert "github_token='******'" in str(app_config)
+    assert "jwt_secret='******'" in repr(app_config)
+    assert "jwt_secret='******'" in str(app_config)
+    assert "ssh_password='******'" in repr(app_config)
+    assert "ssh_password='******'" in str(app_config)
 
     # Check that no other attrs in AppConfig have 'key' or 'token' in their name
     # This will fail when new attrs are added, and attract attention
-    known_key_token_attrs_app = ['e2b_api_key', 'github_token']
+    known_key_token_attrs_app = ['e2b_api_key']
     for attr_name in dir(AppConfig):
         if (
             not attr_name.startswith('__')
@@ -285,3 +502,20 @@ def test_api_keys_repr_str():
             assert (
                 'token' not in attr_name.lower() or 'tokens' in attr_name.lower()
             ), f"Unexpected attribute '{attr_name}' contains 'token' in AppConfig"
+
+
+def test_max_iterations_and_max_budget_per_task_from_toml(temp_toml_file):
+    temp_toml = """
+[core]
+max_iterations = 100
+max_budget_per_task = 4.0
+"""
+
+    config = AppConfig()
+    with open(temp_toml_file, 'w') as f:
+        f.write(temp_toml)
+
+    load_from_toml(config, temp_toml_file)
+
+    assert config.max_iterations == 100
+    assert config.max_budget_per_task == 4.0

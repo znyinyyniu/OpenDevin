@@ -10,7 +10,7 @@ interface ChatInputProps {
   onSendMessage: (message: string) => void;
 }
 
-function ChatInput({ disabled, onSendMessage }: ChatInputProps) {
+function ChatInput({ disabled = false, onSendMessage }: ChatInputProps) {
   const { t } = useTranslation();
 
   const [message, setMessage] = React.useState("");
@@ -34,7 +34,7 @@ function ChatInput({ disabled, onSendMessage }: ChatInputProps) {
   };
 
   return (
-    <div className="w-full relative text-base flex">
+    <div className="w-full relative text-base flex pt-3">
       <Textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
@@ -62,16 +62,12 @@ function ChatInput({ disabled, onSendMessage }: ChatInputProps) {
             ? "cursor-not-allowed border-neutral-400 text-neutral-400"
             : "hover:bg-neutral-500 ",
         )}
-        aria-label="Send message"
+        aria-label={t(I18nKey.CHAT_INTERFACE$TOOLTIP_SEND_MESSAGE)}
       >
         <VscArrowUp />
       </button>
     </div>
   );
 }
-
-ChatInput.defaultProps = {
-  disabled: false,
-};
 
 export default ChatInput;

@@ -10,9 +10,11 @@ from opendevin.core.exceptions import (
 )
 from opendevin.llm.llm import LLM
 from opendevin.runtime.plugins import PluginRequirement
+from opendevin.runtime.tools import RuntimeTool
 
 
 class Agent(ABC):
+    DEPRECATED = False
     """
     This abstract base class is an general interface for an agent dedicated to
     executing a specific instruction and allowing human interaction with the
@@ -22,6 +24,7 @@ class Agent(ABC):
 
     _registry: dict[str, Type['Agent']] = {}
     sandbox_plugins: list[PluginRequirement] = []
+    runtime_tools: list[RuntimeTool] = []
 
     def __init__(
         self,
@@ -67,7 +70,12 @@ class Agent(ABC):
         to prepare the agent for restarting the instruction or cleaning up before destruction.
 
         """
+        # TODO clear history
         self._complete = False
+
+    @property
+    def name(self):
+        return self.__class__.__name__
 
     @classmethod
     def register(cls, name: str, agent_cls: Type['Agent']):

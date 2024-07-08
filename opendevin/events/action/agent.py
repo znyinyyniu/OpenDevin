@@ -40,6 +40,11 @@ class AgentSummarizeAction(Action):
     def message(self) -> str:
         return self.summary
 
+    def __str__(self) -> str:
+        ret = '**AgentSummarizeAction**\n'
+        ret += f'SUMMARY: {self.summary}'
+        return ret
+
 
 @dataclass
 class AgentFinishAction(Action):
@@ -49,6 +54,8 @@ class AgentFinishAction(Action):
 
     @property
     def message(self) -> str:
+        if self.thought != "":
+            return self.thought
         return "All done! What's next on the agenda?"
 
 
@@ -60,7 +67,10 @@ class AgentRejectAction(Action):
 
     @property
     def message(self) -> str:
-        return 'Task is rejected by the agent.'
+        msg: str = 'Task is rejected by the agent.'
+        if 'reason' in self.outputs:
+            msg += ' Reason: ' + self.outputs['reason']
+        return msg
 
 
 @dataclass
